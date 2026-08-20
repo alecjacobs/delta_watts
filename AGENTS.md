@@ -29,7 +29,7 @@ lib/delta_watts/
 
 `App` runs two clocks: frames at 0.25s (animation, easing, resize, power sample), battery samples at `--interval` (default 1s). History is timestamped samples for the last 60s (~4/sec). The plot bins by time into terminal columns so a spike stays put until it ages one column left — do not downsample by sample index.
 
-On each frame: ease displayed percent, sample live watts, rebuild the frame, cursor-home and rewrite. On resize, full clear first. Always restore `stty -g`, cursor, wrap, and alt screen in `ensure` — do not use `IO#raw(mode:)` or `IO#raw=`. Stop the power sampler in teardown.
+On each frame: ease displayed percent, sample live watts, smooth with a light EMA, rebuild the frame, cursor-home and rewrite. On resize, full clear first. Always restore `stty -g`, cursor, wrap, and alt screen in `ensure` — do not use `IO#raw(mode:)` or `IO#raw=`. Stop the power sampler in teardown.
 
 ## Live watts
 

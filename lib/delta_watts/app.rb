@@ -7,6 +7,7 @@ module DeltaWatts
     DEFAULT_INTERVAL = 1.0
     FRAME_INTERVAL = 0.25
     HISTORY_SECONDS = 60
+    EMA_ALPHA = 0.35
 
     def initialize(interval: DEFAULT_INTERVAL)
       @data_interval = interval
@@ -139,8 +140,8 @@ module DeltaWatts
       return if watts.nil?
 
       now = monotonic_time
-      @power_watts = watts
-      @history << [now, watts]
+      @power_watts = blend(watts)
+      @history << [now, @power_watts]
       cutoff = now - HISTORY_SECONDS
       @history.shift while @history.any? && @history.dig(0, 0) < cutoff
     end
@@ -183,6 +184,12 @@ module DeltaWatts
       delta = target_percent - @display_percent
       @display_percent += delta * 0.35
       @display_percent = target_percent if delta.abs < 0.2
+    end
+
+    def blend(watts)
+      return watts if @power_watts.nil?
+
+      @power_watts + (watts - @power_watts) * EMA_ALPHA
     end
 
     def battery_watts(snapshot)
