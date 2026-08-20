@@ -56,7 +56,8 @@ module DeltaWatts
       design_capacity_mah: "DesignCapacity",
       max_capacity_percent: "MaxCapacity",
       raw_current_mah: "AppleRawCurrentCapacity",
-      raw_max_mah: "AppleRawMaxCapacity"
+      raw_max_mah: "AppleRawMaxCapacity",
+      raw_voltage_mv: "AppleRawBatteryVoltage"
     }.freeze
 
     def self.snapshot
@@ -68,11 +69,12 @@ module DeltaWatts
       raise "No internal battery found on this Mac." if raw.nil? || raw.empty?
 
       values = parse_fields(raw)
-      amperage = pick_amperage(values[:instant_amperage_ma], values[:amperage_ma])
+      voltage = positive_int(values[:raw_voltage_mv]) || values.fetch(:voltage_mv)
+      amperage = pick_amperage(values, voltage)
 
       Snapshot.new(
         percent: values.fetch(:percent),
-        voltage_mv: values.fetch(:voltage_mv),
+        voltage_mv: voltage,
         amperage_ma: amperage,
         is_charging: truthy?(values[:is_charging]),
         external_connected: truthy?(values[:external_connected]),
@@ -90,7 +92,9 @@ module DeltaWatts
     private
 
     def fetch_ioreg
-      stdout, status = Open3.capture2("ioreg", "-l", "-w", "0", "-c", "AppleSmartBattery")
+      stdout, status = Open3.capture2(
+        "ioreg", "-r", "-c", "AppleSmartBattery", "-d", "1", "-w", "0"
+      )
       return nil unless status.success?
 
       stdout.b
@@ -98,27 +102,25 @@ module DeltaWatts
 
     def parse_fields(raw)
       FIELDS.each_with_object({}) do |(key, label), result|
-        next if key == :instant_amperage_ma
-
         match = raw.match(/"#{Regexp.escape(label)}" = (\S+)/)
         next unless match
 
         value = match[1]
         result[key] =
-          case key
-          when :is_charging, :external_connected, :fully_charged
+          if %i[is_charging external_connected fully_charged].include?(key)
             value
-          when :percent, :time_remaining_min, :time_to_full_min,
-               :design_capacity_mah, :max_capacity_percent,
-               :raw_current_mah, :raw_max_mah
-            value.to_i
           else
-            value.to_i
+            value[/-?\d+/].to_i
           end
       end.tap do |result|
-        instant = raw.match(/"InstantAmperage" = (\S+)/)
-        result[:instant_amperage_ma] = instant[1].to_i if instant
+        result[:battery_power_mw] = nested_int(raw, "BatteryPower")
+        result[:system_load_mw] = nested_int(raw, "SystemLoad")
       end
+    end
+
+    def nested_int(raw, key)
+      match = raw.match(/"#{Regexp.escape(key)}"=(-?\d+)/)
+      match && match[1].to_i
     end
 
     def parse_adapter_watts(raw)
@@ -128,15 +130,30 @@ module DeltaWatts
       match[1].to_i
     end
 
-    def pick_amperage(instant, averaged)
-      instant_ma = signed_ma(instant)
-      return instant_ma unless instant_ma.zero?
+    def pick_amperage(values, voltage_mv)
+      candidates = [
+        signed_int64(values[:instant_amperage_ma]),
+        signed_int64(values[:amperage_ma]),
+        milliwatts_to_ma(values[:battery_power_mw], voltage_mv)
+      ]
+      unless truthy?(values[:external_connected])
+        candidates << -milliwatts_to_ma(values[:system_load_mw], voltage_mv).abs
+      end
 
-      signed_ma(averaged)
+      candidates.find { |ma| ma.abs >= 10 } || 0
     end
 
-    # ioreg prints SInt64 InstantAmperage as unsigned when discharging.
-    def signed_ma(value)
+    def milliwatts_to_ma(power_mw, voltage_mv)
+      return 0 if power_mw.nil? || voltage_mv.nil? || voltage_mv.zero?
+
+      power_mw = signed_int64(power_mw)
+      return 0 if power_mw.zero?
+
+      (power_mw * 1000.0 / voltage_mv).round
+    end
+
+    # ioreg prints SInt64 values as unsigned when negative.
+    def signed_int64(value)
       return 0 if value.nil?
 
       value >= 2**63 ? value - 2**64 : value
@@ -161,6 +178,10 @@ module DeltaWatts
 
     def truthy?(value)
       value == "Yes" || value == true
+    end
+
+    def positive_int(value)
+      value.to_i.positive? ? value.to_i : nil
     end
 
     def normalize_minutes(value)

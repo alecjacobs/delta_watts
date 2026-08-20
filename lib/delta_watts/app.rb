@@ -113,7 +113,15 @@ module DeltaWatts
       return unless force || (now - @last_sample_at) >= @data_interval
 
       @snapshot = Battery.snapshot
-      @last_sample_at = now
+      if force
+        5.times do
+          break unless current_watts(@snapshot).to_f < 0.05 && !@snapshot.fully_charged
+
+          sleep 0.05
+          @snapshot = Battery.snapshot
+        end
+      end
+      @last_sample_at = monotonic_time
       track_history(@snapshot)
     end
 
@@ -172,7 +180,10 @@ module DeltaWatts
           snapshot.watts_out_of_battery
         end
 
-      watts.finite? && watts.between?(0.0, 400.0) ? watts : nil
+      return nil unless watts.finite? && watts.between?(0.0, 400.0)
+      return nil if watts < 0.05 && !snapshot.fully_charged
+
+      watts
     end
 
     def terminal_size
