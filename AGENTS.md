@@ -27,7 +27,7 @@ lib/delta_watts/
 
 ## Loop
 
-`App` runs two clocks: frames at 0.25s (animation, easing, resize, power sample), battery samples at `--interval` (default 1s). History is ~4 samples/sec for the last 60s.
+`App` runs two clocks: frames at 0.25s (animation, easing, resize, power sample), battery samples at `--interval` (default 1s). History is timestamped samples for the last 60s (~4/sec). The plot bins by time into terminal columns so a spike stays put until it ages one column left — do not downsample by sample index.
 
 On each frame: ease displayed percent, sample live watts, rebuild the frame, cursor-home and rewrite. On resize, full clear first. Always restore `stty -g`, cursor, wrap, and alt screen in `ensure` — do not use `IO#raw(mode:)` or `IO#raw=`. Stop the power sampler in teardown.
 
@@ -50,6 +50,6 @@ Source: `ioreg -r -c AppleSmartBattery -d 1 -w 0`. Regex-parse the text; do not 
 
 ## UI
 
-`Renderer` draws a box: status, one summary row (bar + % + runtime + system draw), then the plot. `Sparkline` is a 7-row block chart, Y from 0 to an auto-scaled ceiling (`ceil(max * 1.25)` snapped to 5/10/20/50W…), oldest left / now right. Unobserved time is `·`, not a filling bar. Do not scale to adapter watts.
+`Renderer` draws a box: status, one summary row (bar + % + runtime + system draw), then the plot. `Sparkline` is a 7-row block chart, Y from 0 to an auto-scaled ceiling (`ceil(max * 1.25)` snapped to 5/10/20/50W…), oldest left / now right. Columns are a fixed 60s time grid. Unobserved time is `·`, not a filling bar. Do not scale to adapter watts.
 
 Keep width-safe: truncate with `fit`, pad with `pad_between`, never let ANSI codes count toward visible width.

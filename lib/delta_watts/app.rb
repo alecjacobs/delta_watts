@@ -7,7 +7,6 @@ module DeltaWatts
     DEFAULT_INTERVAL = 1.0
     FRAME_INTERVAL = 0.25
     HISTORY_SECONDS = 60
-    HISTORY_SAMPLES = (HISTORY_SECONDS / FRAME_INTERVAL).round
 
     def initialize(interval: DEFAULT_INTERVAL)
       @data_interval = interval
@@ -139,9 +138,11 @@ module DeltaWatts
       watts = battery_watts(@snapshot) if watts.nil?
       return if watts.nil?
 
+      now = monotonic_time
       @power_watts = watts
-      @history << watts
-      @history.shift while @history.length > HISTORY_SAMPLES
+      @history << [now, watts]
+      cutoff = now - HISTORY_SECONDS
+      @history.shift while @history.any? && @history.dig(0, 0) < cutoff
     end
 
     def refresh

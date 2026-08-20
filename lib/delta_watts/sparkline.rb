@@ -7,11 +7,12 @@ module DeltaWatts
     PER_ROW = LEVELS.length - 1
     GAP = "·"
 
-    def initialize(samples, width:, ceiling:, charging: false)
+    def initialize(samples, width:, ceiling:, charging: false, window_sec: 60)
       @samples = samples
       @width = [width, 1].max
       @ceiling = [ceiling.to_f, 1.0].max
       @charging = charging
+      @window_sec = [window_sec.to_f, 1.0].max
     end
 
     def render_rows
@@ -29,10 +30,47 @@ module DeltaWatts
 
     private
 
-    # Oldest on the left, now on the right. Unfilled time stays empty.
+    # Fixed time columns over [now - window, now]. A sample stays in the same
+    # column until the window advances far enough to age it one slot left.
     def timed_window
-      values = @samples.length > @width ? downsample(@samples, @width) : @samples
-      Array.new(@width - values.length, nil) + values
+      return Array.new(@width) if @samples.empty?
+
+      now = @samples.last[0]
+      dt = @window_sec / @width
+      # Snap the left edge to dt so columns only shift when a full slot elapses.
+      origin = ((now - @window_sec) / dt).floor * dt
+      sums = Array.new(@width, 0.0)
+      counts = Array.new(@width, 0)
+
+      @samples.each do |at, watts|
+        next if at < origin
+
+        index = ((at - origin) / dt).floor
+        index = @width - 1 if index >= @width
+        next if index.negative?
+
+        sums[index] += watts
+        counts[index] += 1
+      end
+
+      slots = counts.each_index.map { |i| counts[i].positive? ? sums[i] / counts[i] : nil }
+      fill_interior_gaps(slots)
+    end
+
+    def fill_interior_gaps(slots)
+      first = slots.index { |value| !value.nil? }
+      last = slots.rindex { |value| !value.nil? }
+      return slots unless first && last
+
+      prev = slots[first]
+      (first..last).each do |index|
+        if slots[index].nil?
+          slots[index] = prev
+        else
+          prev = slots[index]
+        end
+      end
+      slots
     end
 
     def cells_for(value)
@@ -64,17 +102,6 @@ module DeltaWatts
         Ansi.rgb([r + 20, 255].min, [g + 20, 255].min, [b + 20, 255].min, char)
       else
         Ansi.rgb(*base, char)
-      end
-    end
-
-    def downsample(samples, width)
-      chunk_size = samples.length.to_f / width
-      Array.new(width) do |index|
-        start_at = (index * chunk_size).floor
-        finish_at = [((index + 1) * chunk_size).floor, samples.length].min
-        finish_at = start_at + 1 if finish_at <= start_at
-        slice = samples[start_at...finish_at]
-        slice.sum / slice.length.to_f
       end
     end
   end

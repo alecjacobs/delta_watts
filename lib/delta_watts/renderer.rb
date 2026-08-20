@@ -183,7 +183,8 @@ module DeltaWatts
         history,
         width: spark_width,
         ceiling: ceiling,
-        charging: snapshot.on_ac_power?
+        charging: snapshot.on_ac_power?,
+        window_sec: interval_sec
       ).render_rows
       ticks = y_ticks(ceiling)
 
@@ -223,7 +224,7 @@ module DeltaWatts
     end
 
     def power_ceiling(history, power_watts)
-      observed = [history.max || 0.0, power_watts.to_f].max
+      observed = [watts_series(history).max || 0.0, power_watts.to_f].max
       nice_ceiling([observed * 1.25, CEILING_SNAPS.first].max)
     end
 
@@ -233,12 +234,17 @@ module DeltaWatts
 
     def history_stats(history, snapshot)
       prefix = " " * AXIS_PREFIX
-      return "#{prefix}#{Ansi.color(:muted, "waiting for samples…")}" if history.empty?
+      values = watts_series(history)
+      return "#{prefix}#{Ansi.color(:muted, "waiting for samples…")}" if values.empty?
 
-      max = history.max
-      avg = history.sum / history.length
+      max = values.max
+      avg = values.sum / values.length
       tone = snapshot.on_ac_power? ? [102, 178, 214] : [214, 152, 108]
       "#{prefix}#{Ansi.rgb(*tone, format("max %.1f W · avg %.1f W", max, avg))}"
+    end
+
+    def watts_series(history)
+      history.map { |(_, watts)| watts }
     end
 
     def format_duration(minutes)
