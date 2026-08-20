@@ -62,12 +62,22 @@ module DeltaWatts
       "#{PALETTE.fetch(name)}#{text}#{RESET}"
     end
 
-    def rgb(r, g, b, text)
-      if truecolor?
-        "\e[38;2;#{clamp_rgb(r)};#{clamp_rgb(g)};#{clamp_rgb(b)}m#{text}#{RESET}"
-      else
-        color(:accent, text)
-      end
+    def rgb(r, g, b, text, reset: true)
+      code = if truecolor?
+               "\e[38;2;#{clamp_rgb(r)};#{clamp_rgb(g)};#{clamp_rgb(b)}m"
+             else
+               PALETTE[:accent]
+             end
+      "#{code}#{text}#{reset ? RESET : ""}"
+    end
+
+    def bg_rgb(r, g, b, text, reset: true)
+      code = if truecolor?
+               "\e[48;2;#{clamp_rgb(r)};#{clamp_rgb(g)};#{clamp_rgb(b)}m"
+             else
+               "\e[48;5;237m"
+             end
+      "#{code}#{text}#{reset ? RESET : ""}"
     end
 
     def pulse_color(base_rgb, tick, amplitude: 0.18)
@@ -75,18 +85,6 @@ module DeltaWatts
       wave = Math.sin(tick * Math::PI / 4)
       factor = 1.0 + (wave * amplitude)
       rgb((r * factor).round, (g * factor).round, (b * factor).round, "●")
-    end
-
-    def lerp(a, b, t)
-      a + ((b - a) * t)
-    end
-
-    def lerp_rgb(from, to, t)
-      [
-        lerp(from[0], to[0], t).round,
-        lerp(from[1], to[1], t).round,
-        lerp(from[2], to[2], t).round
-      ]
     end
 
     def battery_colors(percent)
