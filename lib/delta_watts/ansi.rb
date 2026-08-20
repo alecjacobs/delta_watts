@@ -18,6 +18,8 @@ module DeltaWatts
     ERASE_DOWN = "\e[J"
     WRAP_OFF = "\e[?7l"
     WRAP_ON = "\e[?7h"
+    SET_TITLE = "\e]0;Δ Watts\a"
+    RESET_TITLE = "\e]0;\a"
 
     def cursor_at(row, col = 1)
       "\e[#{row};#{col}H"

@@ -50,6 +50,7 @@ module DeltaWatts
     private
 
     def setup_terminal
+      Process.setproctitle("watts")
       @old_winch = trap("WINCH") { @resized = true }
       @old_int = trap("INT") { @running = false }
       @old_term = trap("TERM") { @running = false }
@@ -57,6 +58,7 @@ module DeltaWatts
         @stty_state = `stty -g`.chomp
         $stdin.raw!
       end
+      print Ansi::SET_TITLE
       print Ansi::ALT_SCREEN_ON
       print Ansi::HIDE_CURSOR
       print Ansi::WRAP_OFF
@@ -71,6 +73,7 @@ module DeltaWatts
         print Ansi::SHOW_CURSOR
         print Ansi::WRAP_ON
         print Ansi::ALT_SCREEN_OFF
+        print Ansi::RESET_TITLE
         $stdout.flush
       rescue StandardError
         nil
