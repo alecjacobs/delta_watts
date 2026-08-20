@@ -2,7 +2,7 @@
 
 module DeltaWatts
   class Sparkline
-    ROWS = 3
+    ROWS = 7
     LEVELS = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"].freeze
     PER_ROW = LEVELS.length - 1
     GAP = "·"

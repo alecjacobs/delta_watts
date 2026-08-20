@@ -15,12 +15,9 @@ module DeltaWatts
       lines << border_top
       lines << bordered(centered(title_text, inner), inner)
       lines << border_divider(inner)
-      lines << bordered("", inner)
       lines.concat(status_section(snapshot, inner, tick))
       lines << bordered("", inner)
-      lines.concat(battery_section(snapshot, inner, tick, display_percent))
-      lines << bordered("", inner)
-      lines.concat(metrics_section(snapshot, inner, tick))
+      lines.concat(summary_section(snapshot, inner, tick, display_percent))
       lines << bordered("", inner)
       lines.concat(history_section(snapshot, history, inner, interval_sec, tick))
       lines << bordered(Ansi.color(:muted, centered("q quit", inner)), inner)
@@ -94,19 +91,23 @@ module DeltaWatts
       end
     end
 
-    def battery_section(snapshot, inner, tick, display_percent)
-      bar_width = [inner - 10, 4].max
-      fill_width = (display_percent / 100.0 * bar_width).round
-      fill_width = [[fill_width, 0].max, bar_width].min
-      palette = Ansi.battery_colors(display_percent.round)
-      bar = battery_bar(fill_width, bar_width, palette, snapshot.charging?, tick)
-      percent_text = format("%3d%%", display_percent.round)
-      percent = Ansi.rgb(*palette[:fill], percent_text)
+    def summary_section(snapshot, inner, tick, display_percent)
+      [bordered(summary_line(snapshot, inner, tick, display_percent), inner)]
+    end
 
-      [
-        bordered(Ansi.color(:muted, "Battery"), inner),
-        bordered("  #{bar}  #{percent}", inner)
-      ]
+    def summary_line(snapshot, inner, tick, display_percent)
+      runtime = compact_runtime(snapshot, tick)
+      power = compact_power(snapshot)
+      palette = Ansi.battery_colors(display_percent.round)
+      percent = Ansi.rgb(*palette[:fill], format("%3d%%", display_percent.round))
+      metrics = "#{runtime}   #{power}"
+
+      reserved = Ansi.visible_length(percent) + Ansi.visible_length(metrics) + 4
+      bar_width = [inner - reserved, 6].max
+      fill_width = (display_percent / 100.0 * bar_width).round.clamp(0, bar_width)
+      bar = battery_bar(fill_width, bar_width, palette, snapshot.charging?, tick)
+
+      pad_between("#{bar}  #{percent}", metrics, inner)
     end
 
     def battery_bar(filled, width, palette, charging, tick)
@@ -143,59 +144,40 @@ module DeltaWatts
       Ansi.rgb([r + 36, 255].min, [g + 36, 255].min, [b + 24, 255].min, "█")
     end
 
-    def metrics_section(snapshot, inner, tick)
-      left_title = snapshot.charging? ? "Charging" : "Runtime"
-      right_title = snapshot.on_ac_power? ? "Power In" : "Power Out"
-
-      left_value = time_value(snapshot, tick)
-      right_value = power_value(snapshot)
-
-      col_width = [(inner - 5) / 2, 1].max
-      header = metric_header(left_title, right_title, col_width, snapshot)
-      values = metric_values(left_value, right_value, col_width)
-
-      [
-        bordered(header, inner),
-        bordered(values, inner)
-      ]
-    end
-
-    def metric_header(left, right, col_width, snapshot)
-      left_color = snapshot.charging? ? :charge : :muted
-      right_color = snapshot.on_ac_power? ? :charge : :discharge
-      left_text = Ansi.color(left_color, left.ljust(col_width))
-      right_text = Ansi.color(right_color, right.rjust(col_width))
-      "#{left_text}   #{right_text}"
-    end
-
-    def time_value(snapshot, tick)
+    def compact_runtime(snapshot, tick)
       if snapshot.fully_charged
         Ansi.color(:good, "Complete")
       elsif snapshot.charging?
-        text = format_duration(snapshot.time_to_full_min) || "Calculating…"
-        muted = format_duration(snapshot.time_to_full_min).nil?
-        muted ? charging_wait(tick) : Ansi.color(:fg, text)
+        duration = format_duration(snapshot.time_to_full_min)
+        if duration
+          "#{Ansi.color(:fg, duration)} #{Ansi.color(:muted, "to full")}"
+        else
+          spinner = Ansi.color(:charge, Ansi::SPINNER[tick % Ansi::SPINNER.length])
+          "#{spinner} #{Ansi.color(:muted, "to full")}"
+        end
       else
-        text = format_duration(snapshot.time_remaining_min)
-        text ? Ansi.color(:fg, text) : Ansi.color(:muted, "Calculating…")
+        duration = format_duration(snapshot.time_remaining_min)
+        if duration
+          "#{Ansi.color(:fg, duration)} #{Ansi.color(:muted, "left")}"
+        else
+          Ansi.color(:muted, "Calculating…")
+        end
       end
     end
 
-    def charging_wait(tick)
-      spinner = Ansi.color(:charge, Ansi::SPINNER[tick % Ansi::SPINNER.length])
-      "#{spinner} #{Ansi.color(:muted, "Calculating…")}"
-    end
-
-    def power_value(snapshot)
+    def compact_power(snapshot)
       if snapshot.on_ac_power?
-        watts = snapshot.watts_into_battery
-        if snapshot.fully_charged
-          Ansi.color(:muted, "0.0 W")
-        else
-          Ansi.rgb(102, 214, 152, format("%.1f W", watts))
-        end
+        watts = snapshot.fully_charged ? 0.0 : snapshot.watts_into_battery
+        value =
+          if snapshot.fully_charged
+            Ansi.color(:muted, "0.0 W")
+          else
+            Ansi.rgb(102, 214, 152, format("%.1f W", watts))
+          end
+        "#{value} #{Ansi.color(:muted, "in")}"
       else
-        Ansi.rgb(232, 148, 108, format("%.1f W", snapshot.watts_out_of_battery))
+        value = Ansi.rgb(232, 148, 108, format("%.1f W", snapshot.watts_out_of_battery))
+        "#{value} #{Ansi.color(:muted, "out")}"
       end
     end
 
@@ -229,9 +211,18 @@ module DeltaWatts
     end
 
     def y_ticks(ceiling)
-      top = ceiling.round
-      mid = (ceiling / 2.0).round
-      [top, mid, 0].map { |watts| format("%3dW", watts) }
+      rows = Sparkline::ROWS
+      Array.new(rows) do |index|
+        if index.zero?
+          format("%3dW", ceiling.round)
+        elsif index == rows / 2
+          format("%3dW", (ceiling / 2.0).round)
+        elsif index == rows - 1
+          format("%3dW", 0)
+        else
+          "    "
+        end
+      end
     end
 
     def axis_label(tick)
@@ -262,18 +253,6 @@ module DeltaWatts
       avg = history.sum / history.length
       tone = snapshot.on_ac_power? ? [102, 178, 214] : [214, 152, 108]
       "#{prefix}#{Ansi.rgb(*tone, format("max %.1f W · avg %.1f W", max, avg))}"
-    end
-
-    def metric_values(left, right, col_width)
-      left_plain = strip(left)
-      right_plain = strip(right)
-      left_pad = col_width - left_plain.length
-      right_pad = col_width - right_plain.length
-      "  #{left}#{" " * [left_pad, 0].max}   #{" " * [right_pad, 0].max}#{right}"
-    end
-
-    def strip(text)
-      Ansi.strip_ansi(text)
     end
 
     def format_duration(minutes)
