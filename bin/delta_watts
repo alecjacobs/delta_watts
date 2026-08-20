@@ -1,0 +1,31 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "optparse"
+
+lib = File.expand_path("../lib", __dir__)
+$LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
+
+require "delta_watts"
+
+options = { interval: DeltaWatts::App::DEFAULT_INTERVAL }
+
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: delta_watts [options]"
+  opts.on("-i", "--interval SECONDS", Float, "Refresh interval (default: 1.0)") do |value|
+    options[:interval] = value.clamp(0.2, 10.0)
+  end
+  opts.on("-h", "--help", "Show help") do
+    puts opts
+    exit
+  end
+end
+
+parser.parse!
+
+unless RUBY_PLATFORM.include?("darwin")
+  warn "delta_watts is designed for macOS."
+  exit 1
+end
+
+DeltaWatts::App.new(interval: options[:interval]).run
