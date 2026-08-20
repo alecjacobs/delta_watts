@@ -7,7 +7,7 @@ Gem::Specification.new do |spec|
   spec.version = DeltaWatts::VERSION
   spec.authors = ["Buck"]
   spec.summary = "A tasteful TUI for Mac laptop power usage"
-  spec.files = Dir.chdir(__dir__) { Dir.glob("{bin,lib}/**/*", File::FNM_DOTMATCH) }
+  spec.files = Dir.chdir(__dir__) { Dir.glob("{bin,lib,ext}/**/*", File::FNM_DOTMATCH) }
   spec.executables = ["delta_watts"]
   spec.require_paths = ["lib"]
   spec.required_ruby_version = ">= 3.0"

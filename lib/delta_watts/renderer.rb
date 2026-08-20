@@ -10,7 +10,7 @@ module DeltaWatts
       @height = [height, 1].max
     end
 
-    def render(snapshot:, history:, interval_sec:, tick:, display_percent:)
+    def render(snapshot:, history:, interval_sec:, tick:, display_percent:, power_watts:)
       inner = [@width - 4, 1].max
       lines = []
       lines << border_top
@@ -18,9 +18,9 @@ module DeltaWatts
       lines << border_divider(inner)
       lines.concat(status_section(snapshot, inner, tick))
       lines << bordered("", inner)
-      lines.concat(summary_section(snapshot, inner, tick, display_percent))
+      lines.concat(summary_section(snapshot, inner, tick, display_percent, power_watts))
       lines << bordered("", inner)
-      lines.concat(history_section(snapshot, history, inner, interval_sec, tick))
+      lines.concat(history_section(snapshot, history, inner, interval_sec, power_watts))
       lines << bordered(Ansi.color(:muted, centered("q quit", inner)), inner)
       lines << border_bottom
       lines.map { |line| fit(line) }.join("\n")
@@ -92,13 +92,13 @@ module DeltaWatts
       end
     end
 
-    def summary_section(snapshot, inner, tick, display_percent)
-      [bordered(summary_line(snapshot, inner, tick, display_percent), inner)]
+    def summary_section(snapshot, inner, tick, display_percent, power_watts)
+      [bordered(summary_line(snapshot, inner, tick, display_percent, power_watts), inner)]
     end
 
-    def summary_line(snapshot, inner, tick, display_percent)
+    def summary_line(snapshot, inner, tick, display_percent, power_watts)
       runtime = compact_runtime(snapshot, tick)
-      power = compact_power(snapshot)
+      power = compact_power(snapshot, power_watts)
       palette = Ansi.battery_colors(display_percent.round)
       percent = Ansi.rgb(*palette[:fill], format("%3d%%", display_percent.round))
       metrics = "#{runtime}   #{power}"
@@ -166,24 +166,18 @@ module DeltaWatts
       end
     end
 
-    def compact_power(snapshot)
-      if snapshot.on_ac_power?
-        watts = snapshot.fully_charged ? 0.0 : snapshot.watts_into_battery
-        value =
-          if snapshot.fully_charged
-            Ansi.color(:muted, "0.0 W")
-          else
-            Ansi.rgb(102, 214, 152, format("%.1f W", watts))
-          end
-        "#{value} #{Ansi.color(:muted, "in")}"
-      else
-        value = Ansi.rgb(232, 148, 108, format("%.1f W", snapshot.watts_out_of_battery))
-        "#{value} #{Ansi.color(:muted, "out")}"
-      end
+    def compact_power(snapshot, power_watts)
+      watts = power_watts.to_f
+      value = if snapshot.on_ac_power?
+                Ansi.rgb(102, 214, 152, format("%.1f W", watts))
+              else
+                Ansi.rgb(232, 148, 108, format("%.1f W", watts))
+              end
+      "#{value} #{Ansi.color(:muted, "draw")}"
     end
 
-    def history_section(snapshot, history, inner, interval_sec, _tick)
-      ceiling = power_ceiling(snapshot, history)
+    def history_section(snapshot, history, inner, interval_sec, power_watts)
+      ceiling = power_ceiling(history, power_watts)
       spark_width = [inner - AXIS_PREFIX, 1].max
       rows = Sparkline.new(
         history,
@@ -204,10 +198,9 @@ module DeltaWatts
       ]
     end
 
-    def history_header(snapshot, interval_sec)
+    def history_header(_snapshot, interval_sec)
       window = [60, interval_sec].max
-      verb = snapshot.on_ac_power? ? "Charge" : "Draw"
-      Ansi.color(:muted, "#{verb} · last #{window}s")
+      Ansi.color(:muted, "Draw · last #{window}s")
     end
 
     def y_ticks(ceiling)
@@ -229,17 +222,9 @@ module DeltaWatts
       "#{Ansi.color(:muted, tick)}#{Ansi.color(:border, " ┤ ")}"
     end
 
-    def power_ceiling(snapshot, history)
-      observed = [history.max || 0.0, live_watts(snapshot)].max
+    def power_ceiling(history, power_watts)
+      observed = [history.max || 0.0, power_watts.to_f].max
       nice_ceiling([observed * 1.25, CEILING_SNAPS.first].max)
-    end
-
-    def live_watts(snapshot)
-      if snapshot.on_ac_power?
-        snapshot.fully_charged ? 0.0 : snapshot.watts_into_battery
-      else
-        snapshot.watts_out_of_battery
-      end
     end
 
     def nice_ceiling(value)
@@ -262,7 +247,7 @@ module DeltaWatts
       hours = minutes / 60
       mins = minutes % 60
       if hours.positive?
-        format("%d:%02d", hours, mins)
+        format("%dh %dm", hours, mins)
       else
         format("%d min", mins)
       end

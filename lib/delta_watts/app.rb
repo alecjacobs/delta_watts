@@ -7,6 +7,7 @@ module DeltaWatts
     DEFAULT_INTERVAL = 1.0
     FRAME_INTERVAL = 0.25
     HISTORY_SECONDS = 60
+    HISTORY_SAMPLES = (HISTORY_SECONDS / FRAME_INTERVAL).round
 
     def initialize(interval: DEFAULT_INTERVAL)
       @data_interval = interval
@@ -14,16 +15,20 @@ module DeltaWatts
       @running = false
       @tick = 0
       @snapshot = nil
+      @power_watts = nil
       @display_percent = nil
       @last_sample_at = 0.0
       @last_size = nil
       @restored = false
+      @sampler = nil
     end
 
     def run
+      @sampler = PowerSampler.start
       setup_terminal
       @running = true
       sample_battery(force: true)
+      sample_power
       refresh
 
       next_frame = monotonic_time + FRAME_INTERVAL
@@ -38,6 +43,7 @@ module DeltaWatts
         now = monotonic_time
         if now >= next_frame
           sample_battery if (now - @last_sample_at) >= @data_interval
+          sample_power
           @tick += 1
           refresh
           next_frame += FRAME_INTERVAL
@@ -80,6 +86,7 @@ module DeltaWatts
       end
       restore_signals
       restore_tty
+      @sampler&.stop
     end
 
     def restore_signals
@@ -118,14 +125,23 @@ module DeltaWatts
       @snapshot = Battery.snapshot
       if force
         5.times do
-          break unless current_watts(@snapshot).to_f < 0.05 && !@snapshot.fully_charged
+          break unless battery_watts(@snapshot).to_f < 0.05 && !@snapshot.fully_charged
 
           sleep 0.05
           @snapshot = Battery.snapshot
         end
       end
       @last_sample_at = monotonic_time
-      track_history(@snapshot)
+    end
+
+    def sample_power
+      watts = @sampler&.sample
+      watts = battery_watts(@snapshot) if watts.nil?
+      return if watts.nil?
+
+      @power_watts = watts
+      @history << watts
+      @history.shift while @history.length > HISTORY_SAMPLES
     end
 
     def refresh
@@ -143,7 +159,8 @@ module DeltaWatts
         history: @history,
         interval_sec: HISTORY_SECONDS,
         tick: @tick,
-        display_percent: @display_percent
+        display_percent: @display_percent,
+        power_watts: @power_watts
       )
 
       print Ansi::HOME
@@ -167,15 +184,9 @@ module DeltaWatts
       @display_percent = target_percent if delta.abs < 0.2
     end
 
-    def track_history(snapshot)
-      watts = current_watts(snapshot)
-      return if watts.nil?
+    def battery_watts(snapshot)
+      return nil unless snapshot
 
-      @history << watts
-      @history.shift while @history.length > HISTORY_SECONDS
-    end
-
-    def current_watts(snapshot)
       watts =
         if snapshot.on_ac_power?
           snapshot.watts_into_battery

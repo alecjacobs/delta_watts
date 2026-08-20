@@ -150,12 +150,30 @@ uninstall() {
   log "restart your shell or run: source ${profile}"
 }
 
+build_sampler() {
+  local src="${ROOT_DIR}/ext/power_sampler.c"
+  local bin="${ROOT_DIR}/libexec/power_sampler"
+
+  mkdir -p "${ROOT_DIR}/libexec"
+  if [[ -x "$bin" && "$bin" -nt "$src" ]]; then
+    return 0
+  fi
+
+  cc -O2 -o "$bin" "$src" \
+    -framework IOKit -framework CoreFoundation -lIOReport \
+    || die "failed to build power sampler (install Xcode Command Line Tools)"
+
+  log "built ${bin}"
+}
+
 install() {
   local shell_name profile ruby_path
 
   [[ -x "$BIN_SCRIPT" ]] || die "missing executable: ${BIN_SCRIPT}"
 
   ruby_path="$(find_ruby)" || die "Ruby 3.0+ is required (brew install ruby)"
+
+  build_sampler
 
   shell_name="$(detect_shell_name)"
   profile="$(profile_for_shell "$shell_name")" || die "unsupported shell: ${shell_name} (supported: zsh, bash, fish)"
