@@ -13,6 +13,15 @@ module DeltaWatts
     ALT_SCREEN_OFF = "\e[?1049l"
     CLEAR = "\e[2J"
     HOME = "\e[H"
+    ERASE_LINE = "\e[K"
+    ERASE_LINE_FULL = "\e[2K"
+    ERASE_DOWN = "\e[J"
+    WRAP_OFF = "\e[?7l"
+    WRAP_ON = "\e[?7h"
+
+    def cursor_at(row, col = 1)
+      "\e[#{row};#{col}H"
+    end
 
     PALETTE = {
       fg: "\e[38;5;252m",

@@ -24,7 +24,7 @@ module DeltaWatts
     def watts_into_battery
       return 0.0 unless external_connected && amperage_ma.positive?
 
-      watts
+      watts.abs
     end
 
     def watts_out_of_battery
@@ -54,7 +54,9 @@ module DeltaWatts
       time_to_full_min: "AvgTimeToFull",
       instant_amperage_ma: "InstantAmperage",
       design_capacity_mah: "DesignCapacity",
-      max_capacity_percent: "MaxCapacity"
+      max_capacity_percent: "MaxCapacity",
+      raw_current_mah: "AppleRawCurrentCapacity",
+      raw_max_mah: "AppleRawMaxCapacity"
     }.freeze
 
     def self.snapshot
@@ -66,7 +68,7 @@ module DeltaWatts
       raise "No internal battery found on this Mac." if raw.nil? || raw.empty?
 
       values = parse_fields(raw)
-      amperage = values.fetch(:instant_amperage_ma, values[:amperage_ma])
+      amperage = pick_amperage(values[:instant_amperage_ma], values[:amperage_ma])
 
       Snapshot.new(
         percent: values.fetch(:percent),
@@ -75,8 +77,10 @@ module DeltaWatts
         is_charging: truthy?(values[:is_charging]),
         external_connected: truthy?(values[:external_connected]),
         fully_charged: truthy?(values[:fully_charged]),
-        time_remaining_min: normalize_minutes(values[:time_remaining_min]),
-        time_to_full_min: normalize_minutes(values[:time_to_full_min]),
+        time_remaining_min: normalize_minutes(values[:time_remaining_min]) ||
+          estimate_discharge_min(values[:raw_current_mah], amperage),
+        time_to_full_min: normalize_minutes(values[:time_to_full_min]) ||
+          estimate_charge_min(values[:raw_current_mah], values[:raw_max_mah], amperage),
         design_capacity_mah: values[:design_capacity_mah],
         max_capacity_percent: values[:max_capacity_percent],
         adapter_watts: parse_adapter_watts(raw)
@@ -105,7 +109,8 @@ module DeltaWatts
           when :is_charging, :external_connected, :fully_charged
             value
           when :percent, :time_remaining_min, :time_to_full_min,
-               :design_capacity_mah, :max_capacity_percent
+               :design_capacity_mah, :max_capacity_percent,
+               :raw_current_mah, :raw_max_mah
             value.to_i
           else
             value.to_i
@@ -121,6 +126,37 @@ module DeltaWatts
       return nil unless match
 
       match[1].to_i
+    end
+
+    def pick_amperage(instant, averaged)
+      instant_ma = signed_ma(instant)
+      return instant_ma unless instant_ma.zero?
+
+      signed_ma(averaged)
+    end
+
+    # ioreg prints SInt64 InstantAmperage as unsigned when discharging.
+    def signed_ma(value)
+      return 0 if value.nil?
+
+      value >= 2**63 ? value - 2**64 : value
+    end
+
+    def estimate_discharge_min(raw_mah, amperage_ma)
+      return nil if raw_mah.nil? || raw_mah <= 0
+      return nil unless amperage_ma.negative?
+
+      ((raw_mah.to_f / amperage_ma.abs) * 60).round
+    end
+
+    def estimate_charge_min(raw_mah, raw_max_mah, amperage_ma)
+      return nil if raw_mah.nil? || raw_max_mah.nil?
+      return nil unless amperage_ma.positive?
+
+      remaining = raw_max_mah - raw_mah
+      return nil unless remaining.positive?
+
+      ((remaining.to_f / amperage_ma) * 60).round
     end
 
     def truthy?(value)

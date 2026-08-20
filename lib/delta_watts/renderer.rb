@@ -2,13 +2,15 @@
 
 module DeltaWatts
   class Renderer
+    AXIS_PREFIX = 7
+
     def initialize(width:, height:)
-      @width = [width, 60].max
-      @height = height
+      @width = [width, 2].max
+      @height = [height, 1].max
     end
 
     def render(snapshot:, history:, interval_sec:, tick:, display_percent:)
-      inner = @width - 4
+      inner = [@width - 4, 1].max
       lines = []
       lines << border_top
       lines << bordered(centered(title_text, inner), inner)
@@ -23,7 +25,7 @@ module DeltaWatts
       lines.concat(history_section(snapshot, history, inner, interval_sec, tick))
       lines << bordered(Ansi.color(:muted, centered("q quit", inner)), inner)
       lines << border_bottom
-      lines.join("\n")
+      lines.map { |line| fit(line) }.join("\n")
     end
 
     private
@@ -93,8 +95,7 @@ module DeltaWatts
     end
 
     def battery_section(snapshot, inner, tick, display_percent)
-      bar_width = inner - 14
-      bar_width = [bar_width, 20].max
+      bar_width = [inner - 10, 4].max
       fill_width = (display_percent / 100.0 * bar_width).round
       fill_width = [[fill_width, 0].max, bar_width].min
       palette = Ansi.battery_colors(display_percent.round)
@@ -149,7 +150,7 @@ module DeltaWatts
       left_value = time_value(snapshot, tick)
       right_value = power_value(snapshot)
 
-      col_width = (inner - 5) / 2
+      col_width = [(inner - 5) / 2, 1].max
       header = metric_header(left_title, right_title, col_width, snapshot)
       values = metric_values(left_value, right_value, col_width)
 
@@ -198,36 +199,69 @@ module DeltaWatts
       end
     end
 
-    def history_section(snapshot, history, inner, interval_sec, tick)
-      label = snapshot_label(interval_sec)
-      spark_width = inner - 2
-      spark = Sparkline.new(
+    def history_section(snapshot, history, inner, interval_sec, _tick)
+      ceiling = power_ceiling(snapshot, history)
+      spark_width = [inner - AXIS_PREFIX, 1].max
+      rows = Sparkline.new(
         history,
         width: spark_width,
-        tick: tick,
+        ceiling: ceiling,
         charging: snapshot.on_ac_power?
-      ).render
-      stats = history_stats(history, snapshot)
+      ).render_rows
+      ticks = y_ticks(ceiling)
+
+      graph = rows.each_with_index.map do |row, index|
+        bordered("#{axis_label(ticks[index])}#{row}", inner)
+      end
 
       [
-        bordered(Ansi.color(:muted, label), inner),
-        bordered("  #{spark}", inner),
-        bordered(stats, inner)
+        bordered(history_header(snapshot, interval_sec, inner), inner),
+        *graph,
+        bordered(history_stats(history, snapshot), inner)
       ]
     end
 
-    def snapshot_label(interval_sec)
+    def history_header(snapshot, interval_sec, inner)
       window = [60, interval_sec].max
-      "Power (#{window}s)"
+      left = Ansi.color(:muted, snapshot.on_ac_power? ? "Into battery" : "From battery")
+      right = Ansi.color(:muted, "last #{window}s")
+      pad_between(left, right, inner)
+    end
+
+    def y_ticks(ceiling)
+      top = ceiling.round
+      mid = (ceiling / 2.0).round
+      [top, mid, 0].map { |watts| format("%3dW", watts) }
+    end
+
+    def axis_label(tick)
+      "#{Ansi.color(:muted, tick)}#{Ansi.color(:border, " ┤ ")}"
+    end
+
+    def power_ceiling(snapshot, history)
+      observed = history.max || 0.0
+      adapter = snapshot.adapter_watts.to_f
+      floor = 20.0
+      if adapter.positive?
+        [observed, adapter, floor].max
+      else
+        nice_ceiling([observed, floor].max)
+      end
+    end
+
+    def nice_ceiling(value)
+      step = value >= 50 ? 20.0 : 10.0
+      (value / step).ceil * step
     end
 
     def history_stats(history, snapshot)
-      return Ansi.color(:muted, "waiting for samples…") if history.empty?
+      prefix = " " * AXIS_PREFIX
+      return "#{prefix}#{Ansi.color(:muted, "waiting for samples…")}" if history.empty?
 
       max = history.max
       avg = history.sum / history.length
       tone = snapshot.on_ac_power? ? [102, 178, 214] : [214, 152, 108]
-      Ansi.rgb(*tone, format("max %.1f W · avg %.1f W", max, avg))
+      "#{prefix}#{Ansi.rgb(*tone, format("max %.1f W · avg %.1f W", max, avg))}"
     end
 
     def metric_values(left, right, col_width)
@@ -255,9 +289,34 @@ module DeltaWatts
     end
 
     def bordered(content, inner)
-      padding = inner - Ansi.visible_length(content)
-      padding = [padding, 0].max
+      visible = Ansi.visible_length(content)
+      if visible > inner
+        content = truncate(content, inner)
+        visible = Ansi.visible_length(content)
+      end
+      padding = [inner - visible, 0].max
       "#{border_vertical} #{content}#{" " * padding} #{border_vertical}"
+    end
+
+    def fit(text)
+      Ansi.visible_length(text) <= @width ? text : truncate(text, @width)
+    end
+
+    def truncate(text, max)
+      return text if Ansi.visible_length(text) <= max
+
+      out = +""
+      visible = 0
+      text.scan(/\e\[[0-9;]*m|[^\e]/) do |token|
+        break if visible >= max
+        if token.start_with?("\e")
+          out << token
+        else
+          out << token
+          visible += 1
+        end
+      end
+      out << Ansi::RESET
     end
 
     def border_top
@@ -293,8 +352,14 @@ module DeltaWatts
     end
 
     def pad_between(left, right, inner)
-      gap = inner - Ansi.visible_length(left) - Ansi.visible_length(right)
-      gap = [gap, 1].max
+      left_len = Ansi.visible_length(left)
+      right_len = Ansi.visible_length(right)
+      if left_len + right_len + 1 > inner
+        keep = [inner - right_len - 1, 0].max
+        left = truncate(left, keep) if keep < left_len
+        left_len = Ansi.visible_length(left)
+      end
+      gap = [inner - left_len - right_len, 1].max
       "#{left}#{" " * gap}#{right}"
     end
   end

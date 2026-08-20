@@ -16,6 +16,8 @@ module DeltaWatts
       @snapshot = nil
       @display_percent = nil
       @last_sample_at = 0.0
+      @last_size = nil
+      @restored = false
     end
 
     def run
@@ -51,20 +53,50 @@ module DeltaWatts
       @old_winch = trap("WINCH") { @resized = true }
       @old_int = trap("INT") { @running = false }
       @old_term = trap("TERM") { @running = false }
-      @stdin_mode = $stdin.raw(mode: false) if $stdin.tty?
+      if $stdin.tty?
+        @stty_state = `stty -g`.chomp
+        $stdin.raw!
+      end
       print Ansi::ALT_SCREEN_ON
       print Ansi::HIDE_CURSOR
+      print Ansi::WRAP_OFF
       print Ansi::CLEAR
     end
 
     def restore_terminal
-      trap("WINCH", @old_winch) if @old_winch
-      trap("INT", @old_int) if @old_int
-      trap("TERM", @old_term) if @old_term
-      $stdin.echo = @stdin_mode.echo if @stdin_mode
-      $stdin.raw = @stdin_mode.raw if @stdin_mode
-      print Ansi::SHOW_CURSOR
-      print Ansi::ALT_SCREEN_OFF
+      return if @restored
+
+      @restored = true
+      begin
+        print Ansi::SHOW_CURSOR
+        print Ansi::WRAP_ON
+        print Ansi::ALT_SCREEN_OFF
+        $stdout.flush
+      rescue StandardError
+        nil
+      end
+      restore_signals
+      restore_tty
+    end
+
+    def restore_signals
+      trap("WINCH", @old_winch || "DEFAULT")
+      trap("INT", @old_int || "DEFAULT")
+      trap("TERM", @old_term || "DEFAULT")
+    rescue StandardError
+      nil
+    end
+
+    def restore_tty
+      return unless $stdin.tty?
+
+      if @stty_state && !@stty_state.empty?
+        system("stty", @stty_state, exception: false)
+      elsif $stdin.respond_to?(:cooked!)
+        $stdin.cooked!
+      end
+    rescue StandardError
+      system("stty", "sane", exception: false)
     end
 
     def drain_stdin
@@ -91,6 +123,9 @@ module DeltaWatts
       ease_toward(@snapshot.percent)
 
       rows, cols = terminal_size
+      size = [rows, cols]
+      resized = @resized || @last_size != size
+
       renderer = Renderer.new(width: cols, height: rows)
       frame = renderer.render(
         snapshot: @snapshot,
@@ -101,12 +136,17 @@ module DeltaWatts
       )
 
       print Ansi::HOME
-      print frame
+      print Ansi::CLEAR if resized
+      frame.split("\n").each_with_index do |line, index|
+        print Ansi.cursor_at(index + 1)
+        print Ansi::ERASE_LINE_FULL
+        print line
+      end
+      print Ansi.cursor_at(frame.count("\n") + 2)
+      print Ansi::ERASE_DOWN
       $stdout.flush
+      @last_size = size
       @resized = false
-    rescue StandardError => e
-      restore_terminal
-      raise e
     end
 
     def ease_toward(target_percent)
@@ -117,6 +157,14 @@ module DeltaWatts
     end
 
     def track_history(snapshot)
+      watts = current_watts(snapshot)
+      return if watts.nil?
+
+      @history << watts
+      @history.shift while @history.length > HISTORY_SECONDS
+    end
+
+    def current_watts(snapshot)
       watts =
         if snapshot.on_ac_power?
           snapshot.watts_into_battery
@@ -124,8 +172,7 @@ module DeltaWatts
           snapshot.watts_out_of_battery
         end
 
-      @history << watts
-      @history.shift while @history.length > HISTORY_SECONDS
+      watts.finite? && watts.between?(0.0, 400.0) ? watts : nil
     end
 
     def terminal_size

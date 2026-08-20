@@ -2,43 +2,57 @@
 
 module DeltaWatts
   class Sparkline
-    BLOCKS = "▁▂▃▄▅▆▇█".chars.freeze
+    ROWS = 3
+    LEVELS = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"].freeze
+    PER_ROW = LEVELS.length - 1
+    GAP = "·"
 
-    def initialize(samples, width:, tick: 0, charging: false)
+    def initialize(samples, width:, ceiling:, charging: false)
       @samples = samples
-      @width = width
-      @tick = tick
+      @width = [width, 1].max
+      @ceiling = [ceiling.to_f, 1.0].max
       @charging = charging
     end
 
-    def render
-      return Ansi.color(:muted, "·" * @width) if @samples.empty?
+    def render_rows
+      slots = timed_window
+      last_sample = slots.rindex { |value| !value.nil? }
 
-      values = downsample(@samples, @width)
-      min = values.min
-      max = values.max
-      range = max - min
-      last_index = values.length - 1
+      columns = slots.each_with_index.map do |value, index|
+        cells_for(value).map { |char| paint(char, value, index == last_sample) }
+      end
 
-      values.each_with_index.map do |value, index|
-        block =
-          if range.zero?
-            BLOCKS[3]
-          else
-            block_index = ((value - min) / range * (BLOCKS.length - 1)).round
-            BLOCKS[block_index]
-          end
-
-        color_for(value, min, max, index == last_index)
-      end.join
+      ROWS.times.map do |row|
+        columns.map { |column| column[row] }.join
+      end
     end
 
     private
 
-    def color_for(value, min, max, latest)
-      range = max - min
-      t = range.zero? ? 0.5 : (value - min) / range
+    # Oldest on the left, now on the right. Unfilled time stays empty.
+    def timed_window
+      values = @samples.length > @width ? downsample(@samples, @width) : @samples
+      Array.new(@width - values.length, nil) + values
+    end
 
+    def cells_for(value)
+      return Array.new(ROWS - 1, " ") + [GAP] if value.nil?
+
+      total = ROWS * PER_ROW
+      filled = ((value.to_f / @ceiling).clamp(0.0, 1.0) * total).round
+      filled = 1 if value.positive? && filled.zero?
+
+      ROWS.times.map do |row_from_top|
+        lower = (ROWS - 1 - row_from_top) * PER_ROW
+        LEVELS[(filled - lower).clamp(0, PER_ROW)]
+      end
+    end
+
+    def paint(char, value, latest)
+      return char if char == " "
+      return Ansi.color(:bar_empty, char) if value.nil?
+
+      t = (value / @ceiling).clamp(0.0, 1.0)
       base = if @charging
                Ansi.lerp_rgb([72, 118, 168], [102, 214, 152], t)
              else
@@ -47,33 +61,18 @@ module DeltaWatts
 
       if latest
         r, g, b = base
-        Ansi.rgb(
-          [r + 24, 255].min,
-          [g + 24, 255].min,
-          [b + 24, 255].min,
-          block_for(value, min, max, range)
-        )
+        Ansi.rgb([r + 20, 255].min, [g + 20, 255].min, [b + 20, 255].min, char)
       else
-        Ansi.rgb(*base, block_for(value, min, max, range))
-      end
-    end
-
-    def block_for(value, min, max, range)
-      if range.zero?
-        BLOCKS[3]
-      else
-        index = ((value - min) / range * (BLOCKS.length - 1)).round
-        BLOCKS[index]
+        Ansi.rgb(*base, char)
       end
     end
 
     def downsample(samples, width)
-      return samples if samples.length <= width
-
       chunk_size = samples.length.to_f / width
       Array.new(width) do |index|
         start_at = (index * chunk_size).floor
         finish_at = [((index + 1) * chunk_size).floor, samples.length].min
+        finish_at = start_at + 1 if finish_at <= start_at
         slice = samples[start_at...finish_at]
         slice.sum / slice.length.to_f
       end
