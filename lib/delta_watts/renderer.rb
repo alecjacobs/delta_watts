@@ -3,6 +3,7 @@
 module DeltaWatts
   class Renderer
     AXIS_PREFIX = 7
+    CEILING_SNAPS = [5, 10, 20, 50, 100, 200, 400].freeze
 
     def initialize(width:, height:)
       @width = [width, 2].max
@@ -197,17 +198,16 @@ module DeltaWatts
       end
 
       [
-        bordered(history_header(snapshot, interval_sec, inner), inner),
+        bordered(history_header(snapshot, interval_sec), inner),
         *graph,
         bordered(history_stats(history, snapshot), inner)
       ]
     end
 
-    def history_header(snapshot, interval_sec, inner)
+    def history_header(snapshot, interval_sec)
       window = [60, interval_sec].max
-      left = Ansi.color(:muted, snapshot.on_ac_power? ? "Into battery" : "From battery")
-      right = Ansi.color(:muted, "last #{window}s")
-      pad_between(left, right, inner)
+      verb = snapshot.on_ac_power? ? "Charge" : "Draw"
+      Ansi.color(:muted, "#{verb} · last #{window}s")
     end
 
     def y_ticks(ceiling)
@@ -230,19 +230,20 @@ module DeltaWatts
     end
 
     def power_ceiling(snapshot, history)
-      observed = history.max || 0.0
-      adapter = snapshot.adapter_watts.to_f
-      floor = 20.0
-      if adapter.positive?
-        [observed, adapter, floor].max
+      observed = [history.max || 0.0, live_watts(snapshot)].max
+      nice_ceiling([observed * 1.25, CEILING_SNAPS.first].max)
+    end
+
+    def live_watts(snapshot)
+      if snapshot.on_ac_power?
+        snapshot.fully_charged ? 0.0 : snapshot.watts_into_battery
       else
-        nice_ceiling([observed, floor].max)
+        snapshot.watts_out_of_battery
       end
     end
 
     def nice_ceiling(value)
-      step = value >= 50 ? 20.0 : 10.0
-      (value / step).ceil * step
+      CEILING_SNAPS.find { |snap| snap >= value } || CEILING_SNAPS.last
     end
 
     def history_stats(history, snapshot)

@@ -38,6 +38,6 @@ Source: `ioreg -r -c AppleSmartBattery -d 1 -w 0`. Regex-parse the text; do not 
 
 ## UI
 
-`Renderer` draws a box: status, one summary row (bar + % + runtime + watts in/out), then the plot. `Sparkline` is a 7-row block chart, Y from 0 to a fixed ceiling, oldest left / now right. Unobserved time is `·`, not a filling bar.
+`Renderer` draws a box: status, one summary row (bar + % + runtime + watts in/out), then the plot. `Sparkline` is a 7-row block chart, Y from 0 to an auto-scaled ceiling (`ceil(max * 1.25)` snapped to 5/10/20/50W…), oldest left / now right. Unobserved time is `·`, not a filling bar. Do not scale to adapter watts — that leaves idle traces in empty space.
 
 Keep width-safe: truncate with `fit`, pad with `pad_between`, never let ANSI codes count toward visible width.
