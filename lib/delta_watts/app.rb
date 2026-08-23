@@ -113,11 +113,12 @@ module DeltaWatts
     end
 
     def drain_stdin
-      while (char = $stdin.read_nonblock(16, exception: false))
-        return :quit if char.include?("q") || char.include?("\u0003")
+      loop do
+        chunk = $stdin.read_nonblock(16, exception: false)
+        break if chunk.nil? || chunk == :wait_readable
+
+        return :quit if chunk.include?("q") || chunk.include?("\u0003")
       end
-      nil
-    rescue IO::WaitReadable
       nil
     end
 
