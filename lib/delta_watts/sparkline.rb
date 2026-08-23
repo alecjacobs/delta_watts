@@ -29,31 +29,32 @@ module DeltaWatts
 
     private
 
-    # Fixed time columns over [now - window, now]. A sample stays in the same
-    # column until the window advances far enough to age it one slot left.
+    # Integer time slots: column i is global slot (now_slot - width + 1 + i).
+    # A sample stays in the same column until now crosses a slot boundary, then
+    # the whole series shifts left by one — left column ages off in that frame.
     def timed_window
       return Array.new(@width) if @samples.empty?
 
-      now = @samples.last[0]
-      dt = @window_sec / @width
-      # Snap the left edge to dt so columns only shift when a full slot elapses.
-      origin = ((now - @window_sec) / dt).floor * dt
+      now_slot = slot_index(@samples.last[0])
+      origin_slot = now_slot - @width + 1
       sums = Array.new(@width, 0.0)
       counts = Array.new(@width, 0)
 
       @samples.each do |at, watts|
-        next if at < origin
-
-        index = ((at - origin) / dt).floor
-        index = @width - 1 if index >= @width
+        index = slot_index(at) - origin_slot
         next if index.negative?
 
+        index = @width - 1 if index >= @width
         sums[index] += watts
         counts[index] += 1
       end
 
       slots = counts.each_index.map { |i| counts[i].positive? ? sums[i] / counts[i] : nil }
       fill_interior_gaps(slots)
+    end
+
+    def slot_index(time)
+      (time * @width / @window_sec).floor
     end
 
     def fill_interior_gaps(slots)

@@ -7,6 +7,9 @@ module DeltaWatts
     DEFAULT_INTERVAL = 1.0
     FRAME_INTERVAL = 0.25
     HISTORY_SECONDS = 60
+    # Extra lookback so the leftmost chart column is not culled before the
+    # integer slot grid advances (dt can be a few seconds in a narrow terminal).
+    HISTORY_SLACK = 5.0
     EMA_ALPHA = 0.35
 
     def initialize(interval: DEFAULT_INTERVAL)
@@ -142,7 +145,7 @@ module DeltaWatts
       now = monotonic_time
       @power_watts = blend(watts)
       @history << [now, @power_watts]
-      cutoff = now - HISTORY_SECONDS
+      cutoff = now - HISTORY_SECONDS - HISTORY_SLACK
       @history.shift while @history.any? && @history.dig(0, 0) < cutoff
     end
 
