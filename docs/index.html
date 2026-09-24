@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Δ Watts</title>
+  <meta name="description" content="A quiet TUI for Mac laptop power: charge, remaining time, live system draw, and the last 60 seconds of history.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <h1>Δ Watts</h1>
+      <p class="lede">
+        A quiet TUI for Mac laptop power: charge, remaining time, live system draw,
+        and the last 60 seconds of history.
+      </p>
+      <p class="meta">
+        <a href="https://github.com/alecjacobs/delta_watts">GitHub</a>
+        · macOS only · quit with <kbd>q</kbd>
+      </p>
+    </header>
+
+    <figure class="shot">
+      <img src="screenshot.png" width="1704" height="598" alt="Δ Watts terminal UI showing charge, runtime, live watts, and a 60-second plot">
+    </figure>
+
+    <section>
+      <h2>Install</h2>
+      <pre><code>./install.sh</code></pre>
+      <p>
+        That builds the power sampler and adds a <code>dwatts</code> alias to your shell profile.
+        Restart the shell (or <code>source</code> the profile), then:
+      </p>
+      <pre><code>dwatts</code></pre>
+      <p>
+        Needs Ruby 3.0+ and Xcode Command Line Tools (<code>cc</code>).
+        Uninstall with <code>./install.sh --uninstall</code>.
+      </p>
+      <p>You can also run it without the alias:</p>
+      <pre><code>ruby bin/delta_watts</code></pre>
+    </section>
+
+    <section>
+      <h2>What it shows</h2>
+      <ul>
+        <li>AC vs battery, charging / unplugged</li>
+        <li>Charge bar and percent</li>
+        <li>Time remaining, or time to full</li>
+        <li>Live system draw (watts)</li>
+        <li>60-second draw plot, auto-scaled</li>
+      </ul>
+      <p>
+        Live watts come from IOReport energy counters and the SMC <code>PSTR</code> key —
+        the same class of data as <code>powermetrics</code>, without sudo.
+        Charge and runtime still come from the battery pack via <code>ioreg</code>.
+      </p>
+    </section>
+  </main>
+</body>
+</html>

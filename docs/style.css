@@ -1,0 +1,135 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d0f12;
+  --surface: #151820;
+  --text: #c8cdd8;
+  --muted: #7a8496;
+  --accent: #6eb5ff;
+  --accent-dim: #3d6a99;
+  --code-bg: #1a1e28;
+  --border: #2a3140;
+  --kbd-bg: #222833;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.page {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+}
+
+.header h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.meta a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.meta a:hover {
+  text-decoration: underline;
+}
+
+kbd {
+  display: inline-block;
+  padding: 0.1em 0.45em;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85em;
+  background: var(--kbd-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.shot {
+  margin: 2rem 0 2.5rem;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+section {
+  margin-bottom: 2rem;
+}
+
+h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+p {
+  margin: 0 0 1rem;
+}
+
+ul {
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+}
+
+li {
+  margin-bottom: 0.35rem;
+}
+
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.88em;
+  padding: 0.12em 0.35em;
+  background: var(--code-bg);
+  border-radius: 4px;
+}
+
+pre {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+pre code {
+  padding: 0;
+  background: none;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+a:focus-visible {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 2px;
+}
